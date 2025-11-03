@@ -178,7 +178,7 @@ class LogListView(generics.ListAPIView):
 	serializer_class = ELDLogSerializer
 
 	def get_queryset(self):
-		qs = ELDLog.objects.select_related("trip").prefetch_related("segments").all().order_by("-date")
+		qs = ELDLog.objects.select_related("trip", "trip__driver").prefetch_related("segments").all().order_by("-date")
 		driver = self.request.query_params.get("driver")
 		trip_id = self.request.query_params.get("trip")
 		start = self.request.query_params.get("start")
@@ -196,7 +196,7 @@ class LogListView(generics.ListAPIView):
 
 @extend_schema(tags=["Logs"])
 class LogDetailView(generics.RetrieveAPIView):
-	queryset = ELDLog.objects.prefetch_related("segments").all()
+	queryset = ELDLog.objects.select_related("trip", "trip__driver").prefetch_related("segments").all()
 	serializer_class = ELDLogSerializer
 	permission_classes = [permissions.IsAuthenticated]
 

@@ -192,19 +192,34 @@ def generate_eld_logs(trip_data, route_data):
 
     def add_segment(status, duration, location=""):
         nonlocal current_hour, daily_segments, daily_hours
-        daily_segments.append({"status": status, "startHour": current_hour, "duration": duration, "location": location})
-        if status == "off-duty":
-            daily_hours["off"] += duration
-        elif status == "sleeper":
-            daily_hours["sleeper"] += duration
-        elif status == "driving":
-            daily_hours["driving"] += duration
+        # If adding this segment would exceed 24 hours, cap it
+        if current_hour + duration > 24:
+            actual_duration = 24 - current_hour
+            if actual_duration > 0:
+                daily_segments.append({"status": status, "startHour": current_hour, "duration": actual_duration, "location": location})
+                if status == "off-duty":
+                    daily_hours["off"] += actual_duration
+                elif status == "sleeper":
+                    daily_hours["sleeper"] += actual_duration
+                elif status == "driving":
+                    daily_hours["driving"] += actual_duration
+                else:
+                    daily_hours["on"] += actual_duration
+            current_hour = 24
         else:
-            daily_hours["on"] += duration
-        current_hour += duration
+            daily_segments.append({"status": status, "startHour": current_hour, "duration": duration, "location": location})
+            if status == "off-duty":
+                daily_hours["off"] += duration
+            elif status == "sleeper":
+                daily_hours["sleeper"] += duration
+            elif status == "driving":
+                daily_hours["driving"] += duration
+            else:
+                daily_hours["on"] += duration
+            current_hour += duration
 
     def save_day():
-        nonlocal current_day, daily_segments, daily_hours, total_miles_day
+        nonlocal current_day, daily_segments, daily_hours, total_miles_day, current_hour
         d = start_date + timedelta(days=current_day - 1)
         logs.append({
             "date": d.isoformat(),
@@ -223,6 +238,7 @@ def generate_eld_logs(trip_data, route_data):
         daily_segments.clear()
         daily_hours.update({"off": 0.0, "sleeper": 0.0, "driving": 0.0, "on": 0.0})
         total_miles_day = 0.0
+        current_hour = 0  # Reset hour to start of new day
 
     # start of day sleeper
     add_segment("sleeper", 8, "Home terminal")
@@ -289,9 +305,15 @@ def generate_eld_logs(trip_data, route_data):
             add_segment("sleeper", 10, "Rest area")
 
     if daily_segments:
-        add_segment("on-duty", 0.5, "Post-trip inspection")
+        # Add post-trip inspection if there's room in the day
+        if current_hour <= 23.5:
+            add_segment("on-duty", 0.5, "Post-trip inspection")
+        
+        # Fill remaining time with off-duty, but cap at 24 hours
         if current_hour < 24:
-            add_segment("off-duty", 24 - current_hour)
+            off_duty_hours = 24 - current_hour
+            add_segment("off-duty", off_duty_hours, "End of day")
+        
         remarks.append("Trip completed")
         save_day()
 
