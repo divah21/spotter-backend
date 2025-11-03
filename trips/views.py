@@ -195,7 +195,7 @@ class LogListView(generics.ListAPIView):
 
 
 @extend_schema(tags=["Logs"])
-class LogDetailView(generics.RetrieveAPIView):
+class LogDetailView(generics.RetrieveUpdateDestroyAPIView):
 	queryset = ELDLog.objects.select_related("trip", "trip__driver").prefetch_related("segments").all()
 	serializer_class = ELDLogSerializer
 	permission_classes = [permissions.IsAuthenticated]
@@ -206,6 +206,12 @@ class LogDetailView(generics.RetrieveAPIView):
 		if user.role == 'driver':
 			qs = qs.filter(trip__driver=user)
 		return qs
+	
+	def perform_destroy(self, instance):
+		# Only admin can delete logs
+		if self.request.user.role != 'admin':
+			raise permissions.PermissionDenied("Only admins can delete logs.")
+		instance.delete()
 
 
 
