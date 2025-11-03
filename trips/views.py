@@ -41,7 +41,6 @@ def plan_trip(request):
 	serializer.is_valid(raise_exception=True)
 	data = serializer.validated_data
 
-	# Plan the route and ELD logs
 	route_data = plan_route(
 		data["current_location"],
 		data["pickup_location"],
@@ -63,7 +62,6 @@ def plan_trip(request):
 			estimated_days=int(route_data.get("estimatedDays", 1) or 1),
 		)
 
-		# Persist Stops
 		for idx, s in enumerate(route_data.get("restStops", []), start=1):
 			Stop.objects.create(
 				trip=trip,
@@ -76,7 +74,6 @@ def plan_trip(request):
 				time_label=s.get("time", ""),
 			)
 
-		# Persist ELD logs and segments
 		for log in eld_logs_data:
 			eld = ELDLog.objects.create(
 				trip=trip,
@@ -127,7 +124,6 @@ class TripListCreateView(generics.ListCreateAPIView):
 		qs = super().get_queryset()
 		user = self.request.user
 
-		# Drivers see only their trips
 		if user.role == 'driver':
 			qs = qs.filter(driver=user)
 
@@ -162,13 +158,11 @@ class TripDetailView(generics.RetrieveUpdateDestroyAPIView):
 	def get_queryset(self):
 		qs = super().get_queryset()
 		user = self.request.user
-		# Drivers can only access their own trips
 		if user.role == 'driver':
 			qs = qs.filter(driver=user)
 		return qs
 
 	def perform_destroy(self, instance):
-		# Only allow delete if draft or by admin
 		if instance.status not in ['draft', 'cancelled'] and self.request.user.role != 'admin':
 			raise permissions.PermissionDenied("Can only delete draft or cancelled trips.")
 		instance.delete()
@@ -209,13 +203,11 @@ class LogDetailView(generics.RetrieveAPIView):
 	def get_queryset(self):
 		qs = super().get_queryset()
 		user = self.request.user
-		# Drivers see only logs from their trips
 		if user.role == 'driver':
 			qs = qs.filter(trip__driver=user)
 		return qs
 
 
-# ============ TRIP WORKFLOW ENDPOINTS ============
 
 @extend_schema(
 	tags=["Trips"],
@@ -232,7 +224,6 @@ def submit_trip(request, pk):
 	except Trip.DoesNotExist:
 		return Response({'error': 'Trip not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-	# Only driver who owns the trip can submit
 	if request.user.role == 'driver' and trip.driver != request.user:
 		return Response({'error': 'You can only submit your own trips.'}, status=status.HTTP_403_FORBIDDEN)
 
@@ -376,7 +367,6 @@ def cancel_trip(request, pk):
 	except Trip.DoesNotExist:
 		return Response({'error': 'Trip not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-	# Permissions check
 	if request.user.role == 'driver':
 		if trip.driver != request.user:
 			return Response({'error': 'You can only cancel your own trips.'}, status=status.HTTP_403_FORBIDDEN)
@@ -391,7 +381,6 @@ def cancel_trip(request, pk):
 	return Response(TripSerializer(trip).data)
 
 
-# ============ ELD LOG WORKFLOW ENDPOINTS ============
 
 @extend_schema(
 	tags=["Logs"],
