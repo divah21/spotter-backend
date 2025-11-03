@@ -24,5 +24,4 @@ services:
       - key: DJANGO_CSRF_TRUSTED_ORIGINS
         value: https://spotter-frontend-umber.vercel.app
       - key: DATABASE_URL
-        # Using your existing Render Postgres (internal hostname)
         value: postgresql://spotterdb_tyi7_user:MKFKC09ixdrt2tW9U1Jn94J9nhG9HTcd@dpg-d448e0muk2gs73a0k090-a/spotterdb_tyi7
