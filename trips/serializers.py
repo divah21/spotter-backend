@@ -53,7 +53,8 @@ class LogSegmentSerializer(serializers.ModelSerializer):
 
 class ELDLogSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(read_only=True)
-    trip = serializers.PrimaryKeyRelatedField(read_only=True)
+    trip = serializers.SerializerMethodField()
+    driver = serializers.SerializerMethodField()
     driver_name = serializers.ReadOnlyField(source='trip.driver_name')
     segments = LogSegmentSerializer(many=True, read_only=True)
     reviewed_by_name = serializers.SerializerMethodField()
@@ -63,6 +64,7 @@ class ELDLogSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "trip",
+            "driver",
             "driver_name",
             "date",
             "day_number",
@@ -84,6 +86,28 @@ class ELDLogSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_reviewed_by_name(self, obj):
         return obj.reviewed_by.get_full_name() if obj.reviewed_by else None
+    
+    def get_trip(self, obj):
+        """Return trip details with pickup/dropoff locations"""
+        if obj.trip:
+            return {
+                'id': obj.trip.id,
+                'pickup_location': obj.trip.pickup_location,
+                'dropoff_location': obj.trip.dropoff_location,
+                'driver_name': obj.trip.driver_name,
+            }
+        return None
+    
+    def get_driver(self, obj):
+        """Return driver info from trip"""
+        if obj.trip and obj.trip.driver:
+            return {
+                'id': obj.trip.driver.id,
+                'username': obj.trip.driver.username,
+                'first_name': obj.trip.driver.first_name,
+                'last_name': obj.trip.driver.last_name,
+            }
+        return None
 
 
 class StopSerializer(serializers.ModelSerializer):
