@@ -181,7 +181,7 @@ def generate_eld_logs(trip_data, route_data):
     logs = []
     start_date = date.today()
 
-    current_hour = 8
+    current_hour = 0.0  # Start at midnight
     current_day = 1
     daily_segments = []
     daily_hours = {"off": 0.0, "sleeper": 0.0, "driving": 0.0, "on": 0.0}
@@ -192,20 +192,34 @@ def generate_eld_logs(trip_data, route_data):
 
     def add_segment(status, duration, location=""):
         nonlocal current_hour, daily_segments, daily_hours
-        # If adding this segment would exceed 24 hours, cap it
+        if duration <= 0:
+            return
+            
+        # If we're at or past 24 hours, we need to save the day and start a new one
+        while current_hour >= 24:
+            save_day()
+        
+        # If adding this segment would exceed 24 hours, split it
         if current_hour + duration > 24:
-            actual_duration = 24 - current_hour
-            if actual_duration > 0:
-                daily_segments.append({"status": status, "startHour": current_hour, "duration": actual_duration, "location": location})
-                if status == "off-duty":
-                    daily_hours["off"] += actual_duration
-                elif status == "sleeper":
-                    daily_hours["sleeper"] += actual_duration
-                elif status == "driving":
-                    daily_hours["driving"] += actual_duration
-                else:
-                    daily_hours["on"] += actual_duration
-            current_hour = 24
+            # Add portion that fits in current day
+            first_duration = 24 - current_hour
+            daily_segments.append({"status": status, "startHour": current_hour, "duration": first_duration, "location": location})
+            if status == "off-duty":
+                daily_hours["off"] += first_duration
+            elif status == "sleeper":
+                daily_hours["sleeper"] += first_duration
+            elif status == "driving":
+                daily_hours["driving"] += first_duration
+            else:
+                daily_hours["on"] += first_duration
+            
+            # Save the current day
+            save_day()
+            
+            # Add remainder to new day
+            remaining_duration = duration - first_duration
+            if remaining_duration > 0:
+                add_segment(status, remaining_duration, location)
         else:
             daily_segments.append({"status": status, "startHour": current_hour, "duration": duration, "location": location})
             if status == "off-duty":
@@ -219,7 +233,14 @@ def generate_eld_logs(trip_data, route_data):
             current_hour += duration
 
     def save_day():
-        nonlocal current_day, daily_segments, daily_hours, total_miles_day, current_hour
+        nonlocal current_day, daily_segments, daily_hours, total_miles_day, current_hour, remarks
+        
+        # Fill rest of day with off-duty if not at 24 hours
+        if current_hour < 24 and len(daily_segments) > 0:
+            off_duty_fill = 24 - current_hour
+            daily_segments.append({"status": "off-duty", "startHour": current_hour, "duration": off_duty_fill, "location": "End of day"})
+            daily_hours["off"] += off_duty_fill
+        
         d = start_date + timedelta(days=current_day - 1)
         logs.append({
             "date": d.isoformat(),
@@ -238,9 +259,11 @@ def generate_eld_logs(trip_data, route_data):
         daily_segments.clear()
         daily_hours.update({"off": 0.0, "sleeper": 0.0, "driving": 0.0, "on": 0.0})
         total_miles_day = 0.0
-        current_hour = 0  # Reset hour to start of new day
+        current_hour = 0.0  # Reset hour to start of new day
+        remarks = []  # Clear remarks for new day
 
-    # start of day sleeper
+    # Start of day 1: off-duty from midnight to 8am, then sleeper
+    add_segment("off-duty", 8, "Off duty")
     add_segment("sleeper", 8, "Home terminal")
     remarks.append("Started trip after 10-hour rest")
     add_segment("on-duty", 0.5, "Pre-trip inspection")
@@ -251,11 +274,12 @@ def generate_eld_logs(trip_data, route_data):
     while remaining_distance > 0 or stop_index < len(stops):
         if daily_hours["driving"] >= 11 or (daily_hours["driving"] + daily_hours["on"]) >= 14:
             add_segment("on-duty", 0.5, "Post-trip inspection")
-            if current_hour < 24:
-                add_segment("sleeper", 24 - current_hour, "Rest area")
+            # save_day() will automatically fill with off-duty
             save_day()
+            # New day starts with sleeper
             add_segment("sleeper", 10, "Rest area")
             add_segment("on-duty", 0.5, "Pre-trip inspection")
+            remarks.append("Resumed after 10-hour rest")
             continue
 
         if stop_index < len(stops):
@@ -286,10 +310,11 @@ def generate_eld_logs(trip_data, route_data):
                 add_segment("off-duty", 0.5, "30-min break")
                 remarks.append("30-minute break")
             elif stop["type"] == "rest":
-                if current_hour < 24:
-                    add_segment("sleeper", 24 - current_hour, "Rest area")
+                # save_day() will fill rest of day with off-duty
                 save_day()
+                # New day starts with 10-hour sleeper
                 add_segment("sleeper", 10, "Rest area")
+                remarks.append("Resumed after 10-hour rest")
         else:
             drive_time = min(remaining_distance / avg_speed, 11 - daily_hours["driving"], 14 - (daily_hours["driving"] + daily_hours["on"]) - 0.5)
             if drive_time > 0:
@@ -299,22 +324,20 @@ def generate_eld_logs(trip_data, route_data):
             else:
                 break
 
-        if current_hour >= 23.5:
-            add_segment("off-duty", 24 - current_hour)
+        # Check if we're approaching end of day
+        if current_hour >= 23.5 and remaining_distance > 0:
+            # save_day() will fill to 24 with off-duty
             save_day()
+            # Start new day with sleeper
             add_segment("sleeper", 10, "Rest area")
+            add_segment("on-duty", 0.5, "Pre-trip inspection")
+            remarks.append("Resumed after 10-hour rest")
 
+    # End of trip
     if daily_segments:
-        # Add post-trip inspection if there's room in the day
-        if current_hour <= 23.5:
-            add_segment("on-duty", 0.5, "Post-trip inspection")
-        
-        # Fill remaining time with off-duty, but cap at 24 hours
-        if current_hour < 24:
-            off_duty_hours = 24 - current_hour
-            add_segment("off-duty", off_duty_hours, "End of day")
-        
+        add_segment("on-duty", 0.5, "Post-trip inspection")
         remarks.append("Trip completed")
+        # save_day() will automatically fill rest of day with off-duty
         save_day()
 
     return logs
